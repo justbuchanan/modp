@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+
+from subprocess import check_output
+
+import fuzzywuzzy.process
+
+from PyQt5.QtCore import *
+from PyQt5.QtWidgets import *
+from PyQt5.QtGui import *
+
+import sys
+
+
+wminfo = []
+desktop_list = []
+
+monitor_names = check_output(['bspc', 'query', '-M']).decode('utf-8').strip().split('\n')
+for monitor in monitor_names:
+    print('%s' % monitor)
+    desktop_names = check_output(['bspc', 'query', '-D', '-m', monitor]).decode('utf-8').strip().split('\n')
+    # print(desktop_names)
+
+    # print('  ' + "\n  ".join(desktop_names))
+
+    out = "  "
+
+    for dname in desktop_names:
+        desktop_list.append(dname)
+        out += "%d: %s" % (len(desktop_list)-1, dname)
+        out += '\n  '
+    print(out)
+
+
+
+app = QApplication(sys.argv)
+
+
+listWidget = QListWidget()
+textField = QLineEdit()
+
+
+for dname in desktop_list:
+    listWidget.addItem(dname)
+
+layout = QVBoxLayout()
+layout.addWidget(listWidget)
+layout.addWidget(textField)
+
+win = QWidget()
+win.setLayout(layout)
+
+# hit "escape" to quit the program
+esc = QShortcut(QKeySequence(Qt.Key_Escape), win)
+esc.activated.connect(app.quit)
+
+win.show()
+
+textField.setFocus()
+
+
+def update_focus(text):
+    best = fuzzywuzzy.process.extract(text, desktop_list, limit=1)
+    dname = best[0][0]
+
+    # check_output(['bspc', 'desktop', dname, '--focus', dname])
+    listWidget.setCurrentRow(desktop_list.index(dname))
+
+textField.textChanged.connect(update_focus)
+
+
+def do_it():
+    check_output(['bspc', 'desktop', '--focus', desktop_list[listWidget.currentRow()]])
+    app.exit()
+
+textField.returnPressed.connect(do_it)
+
+listWidget.itemClicked.connect(do_it)
+
+
+app.exec()
