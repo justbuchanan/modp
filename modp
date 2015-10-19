@@ -1,14 +1,58 @@
 #!/usr/bin/env python3
 
 from subprocess import check_output
-
-import fuzzywuzzy.process
+import sys
+import re
 
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 
-import sys
+import fuzzywuzzy.process
+
+
+
+# Returns a QRect
+def window_geometry(id):
+    x = int(check_output(['wattr', 'x', id]).decode('utf-8'))
+    y = int(check_output(['wattr', 'y', id]).decode('utf-8'))
+    h = int(check_output(['wattr', 'h', id]).decode('utf-8'))
+    w = int(check_output(['wattr', 'w', id]).decode('utf-8'))
+    return QRect(x, y, w, h)
+
+
+def window_properties(id):
+    xprop = check_output(['xprop', '-id', str(id)]).decode('utf-8').strip()
+
+    results = {
+        'id': id,
+    }
+
+    m = re.findall('_NET_WM_PID\(CARDINAL\) = (\d+)', xprop)
+    if m: results['pid'] = m[0]
+
+    m = re.findall('_NET_WM_DESKTOP\(CARDINAL\) = (\d+)', xprop)
+    if m: results['desktop'] = m[0]
+
+    m = re.findall('WM_NAME\(STRING\) = "([^\n"]+)', xprop)
+    if m: results['name'] = m[0]
+
+    m = re.findall('WM_NAME\(UTF8_STRING\) = "([^\n"]+)', xprop)
+    if m: results['name'] = m[0]
+
+    m = re.findall('WM_ICON_NAME\(STRING\) = "([^\n"]+)', xprop)
+    if m: results['icon_name'] = m[0]
+
+    m = re.findall('WM_WINDOW_ROLE\(STRING\) = "([^\n"]+)', xprop)
+    if m: results['window_role'] = m[0]
+
+    results['border_width'] = int(check_output(['wattr', 'b', id]).decode('utf-8').strip())
+
+    results['geometry'] = window_geometry(id)
+
+    return results
+
+
 
 
 # Make this window float
@@ -16,69 +60,141 @@ check_output(['bspc', 'rule', '-a', 'modp', 'floating=on'])
 
 
 wminfo = []
-desktop_list = []
 
 monitor_names = check_output(['bspc', 'query', '-M']).decode('utf-8').strip().split('\n')
 for monitor in monitor_names:
-    print('%s' % monitor)
     desktop_names = check_output(['bspc', 'query', '-D', '-m', monitor]).decode('utf-8').strip().split('\n')
-    # print(desktop_names)
 
-    # print('  ' + "\n  ".join(desktop_names))
+    def get_window_ids(monitor_name, desktop_index):
+        win_ids = check_output(['bspc', 'query', '-W', '-d', "%s:^%d" % (monitor_name, desktop_index+1)]).decode('utf-8').strip().split('\n')
+        return [w for w in win_ids if w != '']
 
-    out = "  "
+    mon_info = {'name': monitor, 'desktops': []}
 
-    for dname in desktop_names:
-        desktop_list.append(dname)
-        out += "%d: %s" % (len(desktop_list)-1, dname)
-        out += '\n  '
-    print(out)
+    for i in range(len(desktop_names)):
+        win_ids = get_window_ids(monitor, i)
+        win_infos = [window_properties(wid) for wid in win_ids]
 
+        d_info = {'name': desktop_names[i], 'windows': win_infos}
+        mon_info['desktops'].append(d_info)
+
+    wminfo.append(mon_info)
+
+
+# Pretty print the info we know about the desktop
+if False:
+    import pprint
+    pp = pprint.PrettyPrinter(indent=2)
+    pp.pprint(wminfo)
 
 
 app = QApplication(sys.argv)
 
+treeWidget = QTreeWidget()
+searchables = []
 
-listWidget = QListWidget()
+
+# Build a searchable list of strings and corresponding index paths
+for mon, i_mon in zip(wminfo, range(len(wminfo))):
+    mon_item = QTreeWidgetItem([mon['name']])
+    treeWidget.addTopLevelItem(mon_item)
+    for desktop, i_desktop in zip(mon['desktops'], range(len(mon['desktops']))):
+        desktop_item = QTreeWidgetItem([desktop['name']])
+        mon_item.addChild(desktop_item)
+
+        for window, i_window in zip(desktop['windows'], range(len(desktop['windows']))):
+            desktop_item.addChild(QTreeWidgetItem([window['name']]))
+
+            m, d, w = mon['name'], desktop['name'], window['name']
+            searchables.append((m + ' ' + d + ' ' + w, [i_mon, i_desktop, i_window]))
+
+
+treeWidget.expandAll()
+treeWidget.header().close()
+
+
 textField = QLineEdit()
 
-
-for dname in desktop_list:
-    listWidget.addItem(dname)
-
 layout = QVBoxLayout()
-layout.addWidget(listWidget)
+layout.addWidget(treeWidget)
 layout.addWidget(textField)
 
 win = QWidget()
+# win.setSize(500, 500)
+# win.setWindowFlags(Qt.Widget | Qt.FramelessWindowHint)
+# win.setAttribute(Qt.WA_NoSystemBackground, True)
+# win.setAttribute(Qt.WA_TranslucentBackground, True)
+# win.setStyleSheet("QWidget, QMainWindow { background: #0f0000ff }")
+
+
 win.setLayout(layout)
 
 # hit "escape" to quit the program
 esc = QShortcut(QKeySequence(Qt.Key_Escape), win)
 esc.activated.connect(app.quit)
 
-win.show()
 
 textField.setFocus()
 
 
 def update_focus(text):
-    best = fuzzywuzzy.process.extract(text, desktop_list, limit=1)
-    dname = best[0][0]
+    best = None
 
-    # check_output(['bspc', 'desktop', dname, '--focus', dname])
-    listWidget.setCurrentRow(desktop_list.index(dname))
+    for entry in searchables:
+        score = fuzzywuzzy.fuzz.partial_ratio(text, entry[0])
+
+        if best == None or (score > best[1] and score > 0):
+            best = (entry, score)
+
+        mon_item = treeWidget.topLevelItem(entry[1][0])
+        desktop_item = mon_item.child(entry[1][1])
+        win_item = desktop_item.child(entry[1][2])
+
+        alpha = score/100*255 if score > 0 else 255
+        color = QColor(0, 0, 0, alpha)
+        win_item.setForeground(0, QBrush(color))
+
+
+    if best != None:
+        entry = best[0]
+
+        mon_item = treeWidget.topLevelItem(entry[1][0])
+        desktop_item = mon_item.child(entry[1][1])
+        win_item = desktop_item.child(entry[1][2])
+        treeWidget.setCurrentItem(win_item)
+
 
 textField.textChanged.connect(update_focus)
 
+# Focus selected window on enter or click
+def focus_selected_desktop():
+    selection = treeWidget.currentItem()
 
-def do_it():
-    check_output(['bspc', 'desktop', '--focus', desktop_list[listWidget.currentRow()]])
+    i_window = selection.parent().indexOfChild(selection)
+    i_desktop = selection.parent().parent().indexOfChild(selection.parent())
+    i_monitor = treeWidget.indexOfTopLevelItem(selection.parent().parent().parent())
+
+    mon = wminfo[i_monitor]
+    desktop = mon['desktops'][i_desktop]
+    window = desktop['windows'][i_window]
+
+    # Focus window and quit
+    check_output(['bspc', 'window', '--focus', window['id']])
     app.exit()
 
-textField.returnPressed.connect(do_it)
+textField.returnPressed.connect(focus_selected_desktop)
+treeWidget.itemClicked.connect(focus_selected_desktop)
 
-listWidget.itemClicked.connect(do_it)
 
+for i in range(3):
+    treeWidget.resizeColumnToContents(i)
 
+treeWidget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+win.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+win.adjustSize()
+
+win.setMinimumSize(1000, 500)
+
+win.show()
 app.exec()
