@@ -103,7 +103,10 @@ for mon, i_mon in zip(wminfo, range(len(wminfo))):
         mon_item.addChild(desktop_item)
 
         for window, i_window in zip(desktop['windows'], range(len(desktop['windows']))):
-            desktop_item.addChild(QTreeWidgetItem([window['name']]))
+            win_item = QTreeWidgetItem([window['name']])
+            desktop_item.addChild(win_item)
+
+            # win_item.setFont(QFont()) # TODO
 
             m, d, w = mon['name'], desktop['name'], window['name']
             searchables.append((m + ' ' + d + ' ' + w, [i_mon, i_desktop, i_window]))
@@ -121,11 +124,17 @@ layout.addWidget(textField)
 
 win = QWidget()
 # win.setSize(500, 500)
-# win.setWindowFlags(Qt.Widget | Qt.FramelessWindowHint)
-# win.setAttribute(Qt.WA_NoSystemBackground, True)
-# win.setAttribute(Qt.WA_TranslucentBackground, True)
-# win.setStyleSheet("QWidget, QMainWindow { background: #0f0000ff }")
+win.setWindowFlags(Qt.Widget | Qt.FramelessWindowHint)
+win.setAttribute(Qt.WA_NoSystemBackground, True)
+win.setAttribute(Qt.WA_TranslucentBackground, True)
+win.setStyleSheet("""
+QWidget {
+    border: none;
+    font-size: 20px;
+}
+""")
 
+layout.setContentsMargins(0,0,0,0)
 
 win.setLayout(layout)
 
