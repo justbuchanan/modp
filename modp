@@ -37,6 +37,9 @@ def window_properties(id):
     m = re.findall('WM_NAME\(STRING\) = "([^\n"]+)', xprop)
     if m: results['name'] = m[0]
 
+    m = re.findall('WM_CLASS\(STRING\) = "([^\n"]+)', xprop)
+    if m: results['class'] = m[0]
+
     m = re.findall('WM_NAME\(UTF8_STRING\) = "([^\n"]+)', xprop)
     if m: results['name'] = m[0]
 
@@ -53,6 +56,17 @@ def window_properties(id):
     return results
 
 
+def display_name_for_window(window):
+    print(window)
+    if window['class'] == 'urxvt':
+        return "urxvt: %s" % window['name']
+    elif window['class'] == 'spotify':
+        return "spotify: %s" % window['name']
+    elif window['class'] == 'subl':
+        m = re.findall("(.*) - Sublime Text.*", window['name'])
+        return "subl: %s" % m[0]
+    else:
+        return window['name']
 
 
 # Make this window float
@@ -103,12 +117,13 @@ for mon, i_mon in zip(wminfo, range(len(wminfo))):
         mon_item.addChild(desktop_item)
 
         for window, i_window in zip(desktop['windows'], range(len(desktop['windows']))):
-            win_item = QTreeWidgetItem([window['name']])
+            title = display_name_for_window(window)
+            win_item = QTreeWidgetItem([title])
             desktop_item.addChild(win_item)
 
             # win_item.setFont(QFont()) # TODO
 
-            m, d, w = mon['name'], desktop['name'], window['name']
+            m, d, w = mon['name'], desktop['name'], title
             searchables.append((m + ' ' + d + ' ' + w, [i_mon, i_desktop, i_window]))
 
 
@@ -203,7 +218,7 @@ win.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
 win.adjustSize()
 
-win.setMinimumSize(1000, 500)
+win.setMinimumSize(800, 500)
 
 win.show()
 app.exec()
