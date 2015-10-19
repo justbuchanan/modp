@@ -11,6 +11,10 @@ from PyQt5.QtGui import *
 import sys
 
 
+# Make this window float
+check_output(['bspc', 'rule', '-a', 'modp', 'floating=on'])
+
+
 wminfo = []
 desktop_list = []
 
